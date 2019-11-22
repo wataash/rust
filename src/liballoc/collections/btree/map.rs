@@ -206,6 +206,35 @@ impl<K: Clone + Ord, V: Clone> Clone for BTreeMap<K, V> {
             clone_subtree(self.root.as_ref())
         }
     }
+
+    fn clone_from(&mut self, other: &Self) {
+        if let Some(key) = {
+            if self.len() > other.len() {
+                let diff = self.len() - other.len();
+                if diff <= other.len() {
+                    self.iter().nth_back(diff - 1).map(|pair| (*pair.0).clone())
+                } else {
+                    self.iter().nth(other.len()).map(|pair| (*pair.0).clone())
+                }
+            } else {
+                None
+            }
+        } {
+            self.split_off(&key);
+        }
+        let mut siter = self.range_mut(..);
+        let mut oiter = other.iter();
+        while siter.front != siter.back {
+            if let Some((ok, ov)) = oiter.next() {
+                let (sk, sv) = unsafe { siter.next_unchecked() };
+                sk.clone_from(ok);
+                sv.clone_from(ov);
+            } else {
+                break ;
+            }
+        }
+        self.extend(oiter.map(|(k, v)| ((*k).clone(), (*v).clone())));
+    }
 }
 
 impl<K, Q: ?Sized> super::Recover<Q> for BTreeMap<K, ()>
