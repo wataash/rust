@@ -135,7 +135,7 @@ unsafe impl<#[may_dangle] K, #[may_dangle] V> Drop for BTreeMap<K, V> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
+impl<K: Clone + Ord, V: Clone> Clone for BTreeMap<K, V> {
     fn clone(&self) -> BTreeMap<K, V> {
         fn clone_subtree<'a, K: Clone, V: Clone>(
             node: node::NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal>
@@ -201,15 +201,39 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
         }
 
         if self.is_empty() {
-            // Ideally we'd call `BTreeMap::new` here, but that has the `K:
-            // Ord` constraint, which this method lacks.
-            BTreeMap {
-                root: node::Root::shared_empty_root(),
-                length: 0,
-            }
+            BTreeMap::new()
         } else {
             clone_subtree(self.root.as_ref())
         }
+    }
+
+    fn clone_from(&mut self, other: &Self) {
+        if let Some(key) = {
+            if self.len() > other.len() {
+                let diff = self.len() - other.len();
+                if diff <= other.len() {
+                    self.iter().nth_back(diff - 1).map(|pair| (*pair.0).clone())
+                } else {
+                    self.iter().nth(other.len()).map(|pair| (*pair.0).clone())
+                }
+            } else {
+                None
+            }
+        } {
+            self.split_off(&key);
+        }
+        let mut siter = self.range_mut(..);
+        let mut oiter = other.iter();
+        while siter.front != siter.back {
+            if let Some((ok, ov)) = oiter.next() {
+                let (sk, sv) = unsafe { siter.next_unchecked() };
+                sk.clone_from(ok);
+                sv.clone_from(ov);
+            } else {
+                break ;
+            }
+        }
+        self.extend(oiter.map(|(k, v)| ((*k).clone(), (*v).clone())));
     }
 }
 
@@ -1364,7 +1388,10 @@ impl<'a, K: 'a, V: 'a> Iterator for IterMut<'a, K, V> {
             None
         } else {
             self.length -= 1;
-            unsafe { Some(self.range.next_unchecked()) }
+            unsafe {
+                let (k, v) = self.range.next_unchecked();
+                Some((k, v)) // coerce k from `&mut K` to `&K`
+            }
         }
     }
 
@@ -1761,7 +1788,10 @@ impl<'a, K, V> Iterator for RangeMut<'a, K, V> {
         if self.front == self.back {
             None
         } else {
-            unsafe { Some(self.next_unchecked()) }
+            unsafe {
+                let (k, v) = self.next_unchecked();
+                Some((k, v)) // coerce k from `&mut K` to `&K`
+            }
         }
     }
 
@@ -1771,7 +1801,7 @@ impl<'a, K, V> Iterator for RangeMut<'a, K, V> {
 }
 
 impl<'a, K, V> RangeMut<'a, K, V> {
-    unsafe fn next_unchecked(&mut self) -> (&'a K, &'a mut V) {
+    unsafe fn next_unchecked(&mut self) -> (&'a mut K, &'a mut V) {
         let handle = ptr::read(&self.front);
 
         let mut cur_handle = match handle.right_kv() {
@@ -1779,8 +1809,7 @@ impl<'a, K, V> RangeMut<'a, K, V> {
                 self.front = ptr::read(&kv).right_edge();
                 // Doing the descend invalidates the references returned by `into_kv_mut`,
                 // so we have to do this last.
-                let (k, v) = kv.into_kv_mut();
-                return (k, v); // coerce k from `&mut K` to `&K`
+                return kv.into_kv_mut();
             }
             Err(last_edge) => {
                 let next_level = last_edge.into_node().ascend().ok();
@@ -1794,8 +1823,7 @@ impl<'a, K, V> RangeMut<'a, K, V> {
                     self.front = first_leaf_edge(ptr::read(&kv).right_edge().descend());
                     // Doing the descend invalidates the references returned by `into_kv_mut`,
                     // so we have to do this last.
-                    let (k, v) = kv.into_kv_mut();
-                    return (k, v); // coerce k from `&mut K` to `&K`
+                    return kv.into_kv_mut();
                 }
                 Err(last_edge) => {
                     let next_level = last_edge.into_node().ascend().ok();
