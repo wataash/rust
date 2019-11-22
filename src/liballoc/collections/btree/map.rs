@@ -135,7 +135,7 @@ unsafe impl<#[may_dangle] K, #[may_dangle] V> Drop for BTreeMap<K, V> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
+impl<K: Clone + Ord, V: Clone> Clone for BTreeMap<K, V> {
     fn clone(&self) -> BTreeMap<K, V> {
         fn clone_subtree<'a, K: Clone, V: Clone>(
             node: node::NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal>
