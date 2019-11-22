@@ -1359,7 +1359,10 @@ impl<'a, K: 'a, V: 'a> Iterator for IterMut<'a, K, V> {
             None
         } else {
             self.length -= 1;
-            unsafe { Some(self.range.next_unchecked()) }
+            unsafe {
+                let (k, v) = self.range.next_unchecked();
+                Some((k, v)) // coerce k from `&mut K` to `&K`
+            }
         }
     }
 
@@ -1756,7 +1759,10 @@ impl<'a, K, V> Iterator for RangeMut<'a, K, V> {
         if self.front == self.back {
             None
         } else {
-            unsafe { Some(self.next_unchecked()) }
+            unsafe {
+                let (k, v) = self.next_unchecked();
+                Some((k, v)) // coerce k from `&mut K` to `&K`
+            }
         }
     }
 
@@ -1766,7 +1772,7 @@ impl<'a, K, V> Iterator for RangeMut<'a, K, V> {
 }
 
 impl<'a, K, V> RangeMut<'a, K, V> {
-    unsafe fn next_unchecked(&mut self) -> (&'a K, &'a mut V) {
+    unsafe fn next_unchecked(&mut self) -> (&'a mut K, &'a mut V) {
         let handle = ptr::read(&self.front);
 
         let mut cur_handle = match handle.right_kv() {
@@ -1774,8 +1780,7 @@ impl<'a, K, V> RangeMut<'a, K, V> {
                 self.front = ptr::read(&kv).right_edge();
                 // Doing the descend invalidates the references returned by `into_kv_mut`,
                 // so we have to do this last.
-                let (k, v) = kv.into_kv_mut();
-                return (k, v); // coerce k from `&mut K` to `&K`
+                return kv.into_kv_mut();
             }
             Err(last_edge) => {
                 let next_level = last_edge.into_node().ascend().ok();
@@ -1789,8 +1794,7 @@ impl<'a, K, V> RangeMut<'a, K, V> {
                     self.front = first_leaf_edge(ptr::read(&kv).right_edge().descend());
                     // Doing the descend invalidates the references returned by `into_kv_mut`,
                     // so we have to do this last.
-                    let (k, v) = kv.into_kv_mut();
-                    return (k, v); // coerce k from `&mut K` to `&K`
+                    return kv.into_kv_mut();
                 }
                 Err(last_edge) => {
                     let next_level = last_edge.into_node().ascend().ok();
